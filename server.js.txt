@@ -15,7 +15,7 @@ const config = {
   user: 'dbadmin',
   password: 'yanbu@2025',
   server: 'ynh-hmis-db.database.windows.net',
-  database: 'ynh-hmis-db',
+  database: 'dbo.ynh-prod-db',
   options: {
     encrypt: true
   }
