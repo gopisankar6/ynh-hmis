@@ -1,40 +1,116 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const sql = require('mssql');
-const path = require('path');
 
 const app = express();
-app.use(bodyParser.urlencoded({ extended: true }));
+const port = process.env.PORT || 3000;
 
-// Serve the HTML form
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const config = {
+// Azure SQL Config
+const dbConfig = {
   user: 'dbadmin',
   password: 'yanbu@2025',
   server: 'ynh-hmis-db.database.windows.net',
-  database: 'dbo.ynh-prod-db',
+  database: 'ynh-hmis-db',
   options: {
-    encrypt: true
+    encrypt: true,
+    trustServerCertificate: false
   }
 };
 
-app.post('/submit', async (req, res) => {
-  const { name, age } = req.body;
+// Serve HTML Page
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8" /><title>Employee Form</title></head>
+    <body>
+      <h2>Store Employee</h2>
+      <form method="POST" action="/employee">
+        <input type="number" name="id" placeholder="ID" required />
+        <input type="text" name="name" placeholder="Name" required />
+        <input type="number" name="age" placeholder="Age" required />
+        <button type="submit">Save</button>
+      </form>
+
+      <h2>Lookup Employee</h2>
+      <form onsubmit="lookup(event)">
+        <input type="number" id="lookupId" placeholder="Enter ID" required />
+        <button type="submit">Lookup</button>
+      </form>
+
+      <div id="result" style="margin-top:20px;"></div>
+
+      <script>
+        async function lookup(event) {
+          event.preventDefault();
+          const id = document.getElementById('lookupId').value;
+          const res = await fetch('/employee/' + id);
+          const div = document.getElementById('result');
+
+          if (res.ok) {
+            const data = await res.json();
+            div.innerHTML = 'Name: ' + data.name + '<br>Age: ' + data.age;
+          } else {
+            div.innerText = 'Employee not found.';
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// Store or Update Employee
+app.post('/employee', async (req, res) => {
+  const { id, name, age } = req.body;
+  if (!id || !name || !age) return res.status(400).send('Missing data');
 
   try {
-    await sql.connect(config);
-    // Use brackets [] to escape table name with dot
-    await sql.query`INSERT INTO [ynh-prod.db] (name, age) VALUES (${name}, ${age})`;
-    res.send('✅ Employee data inserted successfully.');
+    const pool = await sql.connect(dbConfig);
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('name', sql.NVarChar, name)
+      .input('age', sql.Int, age)
+      .query(`
+        MERGE INTO dbo.employees AS target
+        USING (SELECT @id AS id, @name AS name, @age AS age) AS source
+        ON target.id = source.id
+        WHEN MATCHED THEN
+          UPDATE SET name = source.name, age = source.age
+        WHEN NOT MATCHED THEN
+          INSERT (id, name, age) VALUES (source.id, source.name, source.age);
+      `);
+    res.redirect('/');
   } catch (err) {
-    console.error('❌ Database error:', err);
-    res.status(500).send('Error inserting data.');
+    console.error('Insert Error:', err);
+    res.status(500).send('Database error');
   }
 });
 
-app.listen(3000, () => {
-  console.log('🚀 Server running at http://localhost:3000');
+// Get Employee by ID
+app.get('/employee/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).send('Invalid ID');
+
+  try {
+    const pool = await sql.connect(dbConfig);
+    const result = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT * FROM dbo.employees WHERE id = @id');
+
+    if (result.recordset.length > 0) {
+      res.json(result.recordset[0]);
+    } else {
+      res.status(404).send('Employee not found');
+    }
+  } catch (err) {
+    console.error('Fetch Error:', err);
+    res.status(500).send('Database error');
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
 });
