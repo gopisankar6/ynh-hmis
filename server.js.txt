@@ -1,0 +1,40 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const sql = require('mssql');
+const path = require('path');
+
+const app = express();
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve the HTML form
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+const config = {
+  user: 'dbadmin',
+  password: 'yanbu@2025',
+  server: 'ynh-hmis-db.database.windows.net',
+  database: 'ynh-hmis-db',
+  options: {
+    encrypt: true
+  }
+};
+
+app.post('/submit', async (req, res) => {
+  const { name, age } = req.body;
+
+  try {
+    await sql.connect(config);
+    // Use brackets [] to escape table name with dot
+    await sql.query`INSERT INTO [ynh-prod.db] (name, age) VALUES (${name}, ${age})`;
+    res.send('✅ Employee data inserted successfully.');
+  } catch (err) {
+    console.error('❌ Database error:', err);
+    res.status(500).send('Error inserting data.');
+  }
+});
+
+app.listen(3000, () => {
+  console.log('🚀 Server running at http://localhost:3000');
+});
